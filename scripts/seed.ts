@@ -15,21 +15,6 @@ async function main() {
     }
   });
 
-  await prisma.setting.create({
-    data: {
-      smtpHost: "smtp.ethereal.email",
-      smtpPort: 587,
-      smtpUser: "test@ethereal.email",
-      smtpPassword: "password",
-      smtpFrom: "Chronos <noreply@chronos.dev>",
-      user: {
-        connect: {
-          id: admin.id
-        }
-      }
-    }
-  });
-
   console.log("✅ Seed completed successfully");
 }
 
