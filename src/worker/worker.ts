@@ -1,21 +1,24 @@
-import { Worker } from "bullmq";
+import { Worker, QueueEvents } from "bullmq";
 import { redis } from "../queue/redis";
 import { prisma } from "../db/prisma";
 import axios from "axios";
 import nodemailer from "nodemailer";
+import { deadLetterQueue } from "../queue/job.queue";
 
 console.log("🚀 Worker started (BullMQ)");
 
 new Worker(
   "chronos-jobs",
-  async job => {
-    const { jobId } = job.data;
+  async bullJob => {
+    const { jobId } = bullJob.data as { jobId: string };
 
     const dbJob = await prisma.job.findUnique({
       where: { id: jobId }
     });
 
     if (!dbJob) return;
+
+    const startedAt = new Date();
 
     try {
       await prisma.job.update({
@@ -31,21 +34,18 @@ new Worker(
         });
       }
 
-      // ✉️ EMAIL (USER-SCOPED SMTP — SAFE MODE)
+      // ✉️ EMAIL (USER-SCOPED SMTP)
       if (dbJob.jobType === "EMAIL") {
-        const allSettings = await prisma.setting.findMany();
+        const settings = await prisma.setting.findFirst();
 
-        const settings = allSettings.find(
-          s => (s as any).userId === dbJob.userId
-        );
-
-        if (!settings) {
-          throw new Error("SMTP settings missing for user");
+        if (!settings || settings.userId !== dbJob.userId) {
+          throw new Error("SMTP settings not found for user");
         }
 
         const transport = nodemailer.createTransport({
           host: settings.smtpHost,
           port: settings.smtpPort,
+          secure: settings.smtpPort === 465,
           auth: {
             user: settings.smtpUser,
             pass: settings.smtpPassword
@@ -60,12 +60,19 @@ new Worker(
         });
       }
 
-
-
-
       await prisma.job.update({
         where: { id: jobId },
         data: { status: "COMPLETED" }
+      });
+
+      await prisma.jobExecution.create({
+        data: {
+          jobId,
+          status: "SUCCESS",
+          attempt: bullJob.attemptsMade + 1,
+          startedAt,
+          endedAt: new Date()
+        }
       });
 
       console.log(`✅ Job completed: ${dbJob.name}`);
@@ -78,10 +85,29 @@ new Worker(
         }
       });
 
-      console.error(`❌ Job failed: ${dbJob.name}`, err.message);
+      await prisma.jobExecution.create({
+        data: {
+          jobId,
+          status: "FAILURE",
+          attempt: bullJob.attemptsMade + 1,
+          output: err.message,
+          startedAt,
+          endedAt: new Date()
+        }
+      });
 
-      throw err; // REQUIRED → BullMQ retry + DLQ
+      throw err; // REQUIRED for BullMQ retry & DLQ
     }
   },
   { connection: redis }
 );
+
+// ☠️ DEAD LETTER QUEUE
+const events = new QueueEvents("chronos-jobs", { connection: redis });
+
+events.on("failed", async ({ jobId, failedReason }) => {
+  await deadLetterQueue.add("dead", {
+    jobId,
+    reason: failedReason
+  });
+});

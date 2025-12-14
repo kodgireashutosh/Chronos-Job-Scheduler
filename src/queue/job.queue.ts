@@ -4,11 +4,16 @@ import { redis } from "./redis";
 export const jobQueue = new Queue("chronos-jobs", {
   connection: redis,
   defaultJobOptions: {
-    removeOnComplete: true,
-    attempts: 5,
+    attempts: 3,              // retries
     backoff: {
       type: "exponential",
       delay: 5000
-    }
+    },
+    removeOnComplete: false,
+    removeOnFail: false
   }
+});
+
+export const deadLetterQueue = new Queue("chronos-dlq", {
+  connection: redis
 });
