@@ -1,65 +1,61 @@
-import { Response } from "express";
+import { Request, Response } from "express";
 import { prisma } from "../db/prisma";
-import { ScheduleType, JobType } from "@prisma/client";
+import { jobQueue } from "../queue/job.queue";
 
 export async function createJob(req: any, res: Response) {
-  const { name, scheduleType, runAt, cron, jobType, payload } = req.body;
-  const userId = req.user?.id;
-
-  if (!userId) {
-    return res.status(401).json({ message: "Unauthenticated user" });
-  }
-
-  if (!name || !scheduleType || !jobType || !payload) {
-    return res.status(400).json({ message: "Missing required fields" });
-  }
-
-  // ✅ VALIDATE USER EXISTS (THIS IS THE KEY FIX)
-  const userExists = await prisma.user.findUnique({
-    where: { id: userId }
-  });
-
-  if (!userExists) {
-    return res.status(400).json({ message: "Invalid user" });
-  }
-
-  // Job-type validation
-  if (jobType === "WEBHOOK" && (!payload.url || !payload.method)) {
-    return res.status(400).json({ message: "Webhook requires url and method" });
-  }
-
-  if (jobType === "EMAIL" && (!payload.to || !payload.subject || !payload.body)) {
-    return res.status(400).json({ message: "Email requires to, subject, body" });
-  }
+  const {
+    name,
+    scheduleType,
+    runAt,
+    cron,
+    jobType,
+    payload
+  } = req.body;
 
   const job = await prisma.job.create({
     data: {
       name,
-      jobType: jobType as JobType,
-      scheduleType:
-        scheduleType === "CRON"
-          ? ScheduleType.CRON
-          : ScheduleType.ONCE,
-      cron: cron ?? null,
-      runAt: runAt ? new Date(runAt) : null,
-      nextRunAt: runAt ? new Date(runAt) : new Date(),
+      jobType,
+      scheduleType,
+      cron: scheduleType === "CRON" ? cron : null,
+      runAt: scheduleType === "ONCE" ? new Date(runAt) : null,
+      nextRunAt:
+        scheduleType === "ONCE"
+          ? new Date(runAt)
+          : new Date(),
       status: "PENDING",
-
-      // Webhook
-      webhookUrl: jobType === "WEBHOOK" ? payload.url : null,
-      webhookMethod: jobType === "WEBHOOK" ? payload.method : null,
-
-      // Email
-      emailTo: jobType === "EMAIL" ? payload.to : null,
-      emailSubject: jobType === "EMAIL" ? payload.subject : null,
-      emailBody: jobType === "EMAIL" ? payload.body : null,
-
-      // ✅ SAFE CONNECT
-      user: {
-        connect: { id: userId }
-      }
+      userId: req.user.id,
+      webhookUrl: payload?.url,
+      webhookMethod: payload?.method,
+      emailTo: payload?.to,
+      emailSubject: payload?.subject,
+      emailBody: payload?.body
     }
   });
+
+  if (scheduleType === "CRON") {
+    // 🔁 Recurring job
+    await jobQueue.add(
+      "execute",
+      { jobId: job.id },
+      {
+        repeat: {
+          pattern: cron // ✅ correct BullMQ typing
+        },
+        removeOnComplete: false
+      }
+    );
+  } else {
+    // ⏱ One-time job
+    const delay =
+      new Date(job.nextRunAt).getTime() - Date.now();
+
+    await jobQueue.add(
+      "execute",
+      { jobId: job.id },
+      { delay: Math.max(delay, 0) }
+    );
+  }
 
   return res.status(201).json(job);
 }
