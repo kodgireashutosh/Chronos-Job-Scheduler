@@ -4,73 +4,103 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { Request, Response } from "express";
 
+/**
+ * SIGNUP
+ */
 export async function signup(req: Request, res: Response) {
     const { email, password } = req.body;
 
-    // ✅ Input validation
     if (!email || !password) {
         return res.status(400).json({
-            message: "Email and password are required"
+            message: "Email and password are required",
         });
     }
 
-    const exists = await prisma.user.findUnique({
-        where: { email }
+    const existingUser = await prisma.user.findUnique({
+        where: { email },
     });
 
-    if (exists) {
+    if (existingUser) {
         return res.status(409).json({
-            message: "User already exists"
+            message: "User already exists",
         });
     }
 
-    const hash = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, 12);
 
     const user = await prisma.user.create({
         data: {
             email,
-            password: hash,
-            apiKey: crypto.randomUUID()
-        }
+            password: hashedPassword,
+            apiKey: crypto.randomUUID(),
+            role: "USER",
+        },
     });
 
-    res.status(201).json({
+    return res.status(201).json({
         id: user.id,
-        email: user.email
+        email: user.email,
     });
 }
 
+/**
+ * LOGIN
+ */
 export async function login(req: Request, res: Response) {
     const { email, password } = req.body;
 
     if (!email || !password) {
         return res.status(400).json({
-            message: "Email and password are required"
+            message: "Email and password are required",
         });
     }
 
     const user = await prisma.user.findUnique({
-        where: { email }
+        where: { email },
     });
 
     if (!user) {
         return res.status(401).json({
-            message: "Invalid credentials"
+            message: "Invalid credentials",
         });
     }
 
-    const ok = await bcrypt.compare(password, user.password);
-    if (!ok) {
+    const isValid = await bcrypt.compare(password, user.password);
+    if (!isValid) {
         return res.status(401).json({
-            message: "Invalid credentials"
+            message: "Invalid credentials",
         });
     }
 
     const token = jwt.sign(
-        { id: user.id, role: user.role },
+        {
+            userId: user.id,   // ✅ matches auth.middleware
+            role: user.role,
+        },
         process.env.JWT_SECRET!,
-        { expiresIn: "1d" }
+        {
+            expiresIn: "1d",
+        }
     );
 
-    res.json({ token });
+    return res.json({ token });
+}
+
+/**
+ * FORGOT PASSWORD (stub)
+ */
+export async function forgotPassword(_req: Request, res: Response) {
+    // TODO:Email sending intentionally skipped
+    return res.json({
+        message: "Password reset link sent (mock)",
+    });
+}
+
+/**
+ * LOGOUT (JWT is stateless)
+ */
+export async function logout(_req: Request, res: Response) {
+    return res.json({
+        message: "Logged out successfully",
+    });
 }
