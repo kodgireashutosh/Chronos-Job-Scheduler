@@ -58,7 +58,10 @@ model Job {
   emailBody     String?
   createdAt     DateTime  @default(now())
   executions    JobExecution[]
+  updatedAt      DateTime     @updatedAt
 }
+
+
 
 model JobExecution {
   id         String   @id @default(uuid())
@@ -80,6 +83,7 @@ enum JobType {
 enum ScheduleType {
   ONCE
   CRON
+  IMMEDIATE
 }
 
 enum JobStatus {
