@@ -1,124 +1,172 @@
+import { Worker, QueueEvents } from "bullmq";
+import { redis } from "../queue/redis";
 import { prisma } from "../db/prisma";
-import { JobStatus } from "@prisma/client";
 import axios from "axios";
 import nodemailer from "nodemailer";
+import { deadLetterQueue } from "../queue/job.queue";
 
-console.log("🚀 Worker started");
+console.log("🚀 Worker started (BullMQ)");
 
-/**
- * Executes a single job safely
- */
-async function executeJob(jobId: string) {
-  const job = await prisma.job.findUnique({
-    where: { id: jobId }
-  });
+interface JobPayload {
+  jobId: string;
+}
 
-  if (!job) return;
+new Worker(
+  "chronos-jobs",
+  async (bullJob) => {
+    // ✅ CORRECT: extract jobId as STRING
+    const { jobId } = bullJob.data as JobPayload;
 
-  try {
-    console.log(`📦 Executing job: ${job.name}`);
-
-    await prisma.job.update({
-      where: { id: job.id },
-      data: { status: JobStatus.RUNNING }
-    });
-
-    // ---- WEBHOOK JOB ----
-    if (job.jobType === "WEBHOOK") {
-      console.log("🌐 Webhook URL:", job.webhookUrl);
-
-      await axios({
-        method: job.webhookMethod || "POST",
-        url: job.webhookUrl!
-      });
+    if (!jobId) {
+      console.warn("⚠️ Missing jobId in payload");
+      return;
     }
 
-    // ---- EMAIL JOB ----
-    if (job.jobType === "EMAIL") {
-      const settings = await prisma.setting.findUnique({
-        where: { userId: job.userId }
+    // 1️⃣ Fetch DB job
+    const dbJob = await prisma.job.findUnique({
+      where: { id: jobId },
+    });
+
+    if (!dbJob) {
+      console.warn("⚠️ Job not found in DB:", jobId);
+      return;
+    }
+
+    const startedAt = new Date();
+
+    try {
+      // 2️⃣ Mark RUNNING
+      await prisma.job.update({
+        where: { id: jobId },
+        data: { status: "RUNNING" },
       });
 
-      if (!settings) {
-        throw new Error("SMTP settings not found for user");
+      // ------------------
+      // 🌐 WEBHOOK
+      // ------------------
+      if (dbJob.jobType === "WEBHOOK") {
+        if (!dbJob.webhookUrl) {
+          throw new Error("Webhook URL missing");
+        }
+
+        console.log("🌐 Sending webhook:", dbJob.webhookUrl);
+
+        await axios({
+          url: dbJob.webhookUrl,
+          method: dbJob.webhookMethod || "POST",
+        });
       }
 
-      console.log("✉️ Email SMTP Host:", settings.smtpHost);
-      console.log("✉️ Sending email to:", job.emailTo);
+      // ------------------
+      // ✉️ EMAIL
+      // ------------------
+      if (dbJob.jobType === "EMAIL") {
+        const settings = await prisma.setting.findFirst({
+          where: { userId: dbJob.userId },
+        });
 
-      const transport = nodemailer.createTransport({
-        host: settings.smtpHost,
-        port: settings.smtpPort,
-        auth: {
-          user: settings.smtpUser,
-          pass: settings.smtpPassword
+        if (!settings) {
+          throw new Error("SMTP settings not found for user");
         }
+
+        const transport = nodemailer.createTransport({
+          host: settings.smtpHost,
+          port: settings.smtpPort,
+          secure: settings.smtpPort === 465,
+          auth: {
+            user: settings.smtpUser,
+            pass: settings.smtpPassword,
+          },
+        });
+
+        await transport.sendMail({
+          from: settings.smtpFrom,
+          to: dbJob.emailTo!,
+          subject: dbJob.emailSubject!,
+          text: dbJob.emailBody!,
+        });
+      }
+
+      // 3️⃣ Mark COMPLETED
+      await prisma.job.update({
+        where: { id: jobId },
+        data: { status: "COMPLETED" },
       });
 
-      await transport.sendMail({
-        from: settings.smtpFrom,
-        to: job.emailTo!,
-        subject: job.emailSubject!,
-        text: job.emailBody!
+      // 4️⃣ Execution success log
+      await prisma.jobExecution.create({
+        data: {
+          jobId,
+          status: "SUCCESS",
+          attempt: bullJob.attemptsMade + 1,
+          startedAt,
+          endedAt: new Date(),
+        },
       });
+
+      console.log(`✅ Job completed: ${dbJob.name}`);
+    } catch (err: any) {
+      // 5️⃣ Mark FAILED + retry count
+      const updatedJob = await prisma.job.update({
+        where: { id: jobId },
+        data: {
+          status: "FAILED",
+          retries: { increment: 1 },
+        },
+      });
+
+      // 6️⃣ Execution failure log
+      await prisma.jobExecution.create({
+        data: {
+          jobId,
+          status: "FAILURE",
+          attempt: bullJob.attemptsMade + 1,
+          output: err.message,
+          startedAt,
+          endedAt: new Date(),
+        },
+      });
+
+      // ⛔ Auto-cancel CRON jobs
+      if (
+        updatedJob.scheduleType === "CRON" &&
+        updatedJob.retries >= updatedJob.maxRetries
+      ) {
+        await prisma.job.update({
+          where: { id: jobId },
+          data: { status: "CANCELLED" },
+        });
+
+        console.log(
+          `⛔ CRON job cancelled after ${updatedJob.retries} failures: ${updatedJob.name}`
+        );
+
+        return;
+      }
+
+      console.error(`❌ Job failed: ${dbJob.name}`, err.message);
+      throw err; // REQUIRED for BullMQ retry + DLQ
     }
-
-    await prisma.job.update({
-      where: { id: job.id },
-      data: { status: JobStatus.COMPLETED }
-    });
-
-    console.log(`✅ Job completed: ${job.name}`);
-  } catch (err) {
-    console.error(`❌ Job failed: ${job.name}`, err);
-
-    await prisma.job.update({
-      where: { id: job.id },
-      data: { status: JobStatus.FAILED }
-    });
+  },
+  {
+    connection: redis,
+    concurrency: 5,
   }
-}
+);
 
-/**
- * Schedules a job exactly once
- * Past jobs run immediately
- */
-function scheduleJob(job: any) {
-  const delay = new Date(job.nextRunAt).getTime() - Date.now();
-  const safeDelay = Math.max(delay, 0); // 👈 past jobs run immediately
+// ------------------
+// 🔥 DLQ LISTENER
+// ------------------
+const events = new QueueEvents("chronos-jobs", {
+  connection: redis,
+});
 
-  console.log(`⏱ Scheduling job "${job.name}" in ${safeDelay} ms`);
+events.on("failed", async ({ jobId, failedReason }) => {
+  console.error("💀 Job moved to DLQ:", jobId, failedReason);
 
-  setTimeout(() => {
-    executeJob(job.id);
-  }, safeDelay);
-}
-
-/**
- * Picks ONLY PENDING jobs and locks them
- */
-async function bootstrapScheduler() {
-  const jobs = await prisma.job.findMany({
-    where: { status: JobStatus.PENDING }
+  await deadLetterQueue.add("dead", {
+    jobId,
+    reason: failedReason,
+    failedAt: new Date(),
   });
-
-  console.log(`🔁 Bootstrapping ${jobs.length} jobs`);
-
-  for (const job of jobs) {
-    // 🔐 Lock job so it is scheduled ONLY ONCE
-    await prisma.job.update({
-      where: { id: job.id },
-      data: { status: JobStatus.SCHEDULED }
-    });
-
-    scheduleJob(job);
-  }
-}
-
-// ---- START WORKER ----
-bootstrapScheduler().catch(console.error);
-
-// ---- PERIODIC REFRESH (safe because jobs are locked) ----
-setInterval(() => {
-  bootstrapScheduler().catch(console.error);
-}, 30_000);
+});

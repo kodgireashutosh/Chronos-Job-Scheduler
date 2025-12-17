@@ -1,15 +1,18 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 
-export function auth(req: any, res: Response, next: NextFunction) {
-  const header = req.headers.authorization;
-  if (!header) return res.sendStatus(401);
+export const auth = (req: any, res: Response, next: NextFunction) => {
+  const token = req.headers.authorization?.split(" ")[1];
 
-  const token = header.split(" ")[1];
+  if (!token) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET!);
+    const payload = jwt.verify(token, process.env.JWT_SECRET!) as any;
+    req.user = { id: payload.userId };
     next();
   } catch {
-    res.sendStatus(401);
+    return res.status(401).json({ message: "Invalid token" });
   }
-}
+};

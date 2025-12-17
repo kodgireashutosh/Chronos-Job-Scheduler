@@ -1,29 +1,53 @@
 import { Router } from "express";
 import { auth } from "./auth.middleware";
-import { createJob } from "./jobs.controller";
-import { saveSettings } from "./settings.controller";
-import { signup, login } from "./auth.controller";
 import { prisma } from "../db/prisma";
+
+import {
+  signup,
+  login,
+  forgotPassword,
+  logout
+} from "./auth.controller";
+
+import { createJob } from "./jobs.controller";
+import {
+  getJobs,
+  getJobById,
+  getJobExecutions,
+  triggerJob,
+  cancelJob
+} from "./jobs.read.controller";
+
+import {
+  getSettings,
+  saveSettings
+} from "./settings.controller";
+import { getDashboardMetrics } from "./dashboard.controller";
 
 const router = Router();
 
-// Auth
+/* ---------------- AUTH ---------------- */
 router.post("/auth/signup", signup);
 router.post("/auth/login", login);
+router.post("/auth/forgot", forgotPassword);
+router.post("/auth/logout", auth, logout);
 
-// Health
-router.get("/health", (_, res) => res.json({ status: "ok" }));
-
-// Jobs (user-scoped)
-router.post("/jobs", auth, createJob);
-router.get("/jobs", auth, async (req: any, res) => {
-  const jobs = await prisma.job.findMany({
-    where: { userId: req.user.id }
-  });
-  res.json(jobs);
+/* ---------------- HEALTH ---------------- */
+router.get("/health", (_, res) => {
+  res.json({ status: "ok" });
 });
 
-// Settings
-router.post("/settings", auth, saveSettings);
+/* ---------------- JOBS ---------------- */
+router.post("/jobs", auth, createJob);
+router.get("/jobs", auth, getJobs);
+router.get("/jobs/:id", auth, getJobById);
+router.get("/jobs/:id/executions", auth, getJobExecutions);
+router.post("/jobs/:id/trigger", auth, triggerJob);
+router.post("/jobs/:id/cancel", auth, cancelJob);
 
+/* ---------------- SETTINGS ---------------- */
+router.get("/settings/smtp", auth, getSettings);
+router.post("/settings/smtp", auth, saveSettings);
+/* ---------------- DASHBOARD ---------------- */
+router.get("/dashboard/metrics", auth, getDashboardMetrics);
 export default router;
