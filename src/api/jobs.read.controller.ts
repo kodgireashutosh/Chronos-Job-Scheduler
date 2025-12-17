@@ -1,5 +1,7 @@
 import { Request, Response } from "express";
 import { prisma } from "../db/prisma";
+import { jobQueue } from "../queue/job.queue";
+import { ExecutionStatus, JobStatus } from "@prisma/client";
 
 /* List jobs */
 export const getJobs = async (req: any, res: Response) => {
@@ -31,11 +33,34 @@ export const getJobExecutions = async (req: any, res: Response) => {
   res.json(executions);
 };
 
-/* Trigger job now */
-export const triggerJob = async (_req: Request, res: Response) => {
-  // BullMQ: queue.add() will be called here
+export const triggerJob = async (req: Request, res: Response) => {
+  const jobId = req.params.id;
+
+  const job = await prisma.job.findUnique({ where: { id: jobId } });
+  if (!job) {
+    return res.status(404).json({ message: "Job not found" });
+  }
+
+  await prisma.job.update({
+    where: { id: jobId },
+    data: {
+      status: JobStatus.RUNNING,
+      retries: { increment: 1 },
+    },
+  });
+
+  await prisma.jobExecution.create({
+    data: {
+      jobId,
+      attempt: job.retries + 1,
+      startedAt: new Date(),
+      status : ExecutionStatus.FAILURE,
+    },
+  });
+
   res.json({ message: "Job triggered" });
 };
+
 
 /* Cancel job */
 export const cancelJob = async (req: Request, res: Response) => {

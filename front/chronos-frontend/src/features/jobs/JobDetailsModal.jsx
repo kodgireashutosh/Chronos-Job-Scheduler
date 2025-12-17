@@ -1,35 +1,87 @@
-import Button from '../../components/Button';
-import { Clock , Calendar, CheckCircle, XCircle, Mail, Activity, RefreshCw} from 'lucide-react';
-
-const MOCK_HISTORY = [
-  {
-    id: 101,
-    attempt: 1,
-    status: "SUCCESS",
-    started: "2023-11-15 10:30:00",
-    ended: "2023-11-15 10:30:45",
-    error: null,
-  },
-  {
-    id: 102,
-    attempt: 1,
-    status: "FAILURE",
-    started: "2023-11-15 10:15:00",
-    ended: "2023-11-15 10:15:02",
-    error: "Timeout: Worker node unresponsive",
-  },
-  {
-    id: 103,
-    attempt: 2,
-    status: "SUCCESS",
-    started: "2023-11-15 10:16:00",
-    ended: "2023-11-15 10:16:45",
-    error: null,
-  },
-];
+import Button from "../../components/Button";
+import StatusBadge from "../../components/StatusBadge";
+import {
+  Clock,
+  Calendar,
+  CheckCircle,
+  XCircle,
+  Mail,
+  Activity,
+  RefreshCw,
+} from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  fetchJob,
+  fetchJobExecutions,
+  triggerJob,
+  stopJob,
+} from "./jobs.api";
 
 const JobDetailsModal = ({ job, onClose }) => {
   if (!job) return null;
+
+  const [jobDetails, setJobDetails] = useState(job);
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [triggering, setTriggering] = useState(false);
+  const [stopping, setStopping] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadDetails = async () => {
+      try {
+        const [jobRes, execRes] = await Promise.all([
+          fetchJob(job.id),
+          fetchJobExecutions(job.id),
+        ]);
+
+        if (!mounted) return;
+
+        setJobDetails(jobRes);
+        setHistory(execRes || []);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    loadDetails();
+
+    return () => {
+      mounted = false;
+    };
+  }, [job.id]);
+
+  const handleTrigger = async () => {
+    try {
+      setTriggering(true);
+      await triggerJob(job.id);
+      const execRes = await fetchJobExecutions(job.id);
+      setHistory(execRes || []);
+    } finally {
+      setTriggering(false);
+    }
+  };
+
+  const handleStop = async () => {
+    try {
+      setStopping(true);
+      await stopJob(job.id);
+
+      // refresh job + history
+      const [jobRes, execRes] = await Promise.all([
+        fetchJob(job.id),
+        fetchJobExecutions(job.id),
+      ]);
+
+      setJobDetails(jobRes);
+      setHistory(execRes || []);
+    } finally {
+      setStopping(false);
+    }
+  };
+
+  const isCron = jobDetails.scheduleType === "CRON";
 
   return (
     <div
@@ -44,6 +96,7 @@ const JobDetailsModal = ({ job, onClose }) => {
           aria-hidden="true"
           onClick={onClose}
         ></div>
+
         <span
           className="hidden sm:inline-block sm:align-middle sm:h-screen"
           aria-hidden="true"
@@ -53,16 +106,17 @@ const JobDetailsModal = ({ job, onClose }) => {
 
         <div className="inline-block align-bottom bg-white rounded-2xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-3xl sm:w-full">
           <div className="bg-white px-4 pt-5 pb-4 sm:p-8">
+            {/* HEADER */}
             <div className="flex items-start justify-between mb-8">
               <div className="flex items-center gap-4">
                 <div
                   className={`p-3 rounded-xl ${
-                    job.type === "EMAIL"
+                    jobDetails.type === "EMAIL"
                       ? "bg-indigo-100 text-indigo-600"
                       : "bg-pink-100 text-pink-600"
                   }`}
                 >
-                  {job.type === "EMAIL" ? (
+                  {jobDetails.type === "EMAIL" ? (
                     <Mail className="w-6 h-6" />
                   ) : (
                     <Activity className="w-6 h-6" />
@@ -73,18 +127,19 @@ const JobDetailsModal = ({ job, onClose }) => {
                     className="text-xl font-bold text-slate-900"
                     id="modal-title"
                   >
-                    {job.name}
+                    {jobDetails.name}
                   </h3>
                   <p className="text-sm text-slate-500 mt-0.5 font-mono">
-                    ID: {job.id}
+                    ID: {jobDetails.id}
                   </p>
                 </div>
               </div>
               <div className="flex flex-col items-end gap-2">
-                <StatusBadge status={job.status} />
+                <StatusBadge status={jobDetails.status} />
               </div>
             </div>
 
+            {/* SUMMARY */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
@@ -93,13 +148,18 @@ const JobDetailsModal = ({ job, onClose }) => {
                 <div className="flex items-center gap-2">
                   <Clock className="w-4 h-4 text-slate-400" />
                   <span className="text-sm font-semibold text-slate-900">
-                    {job.schedule}
+                    {jobDetails.scheduleType}
                   </span>
                 </div>
                 <p className="text-xs font-mono text-slate-500 mt-1 pl-6">
-                  {job.cron}
+                  {isCron
+                    ? jobDetails.cron
+                    : jobDetails.runAt
+                    ? new Date(jobDetails.runAt).toLocaleString()
+                    : "-"}
                 </p>
               </div>
+
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
                   Last Execution
@@ -107,13 +167,15 @@ const JobDetailsModal = ({ job, onClose }) => {
                 <div className="flex items-center gap-2">
                   <Calendar className="w-4 h-4 text-slate-400" />
                   <span className="text-sm font-semibold text-slate-900">
-                    {job.lastRun.split(" ")[0]}
+                    {jobDetails.lastExecutionAt
+                      ? new Date(jobDetails.lastExecutionAt).toLocaleString()
+                      : history.length > 0
+                      ? new Date(history[0].startedAt).toLocaleString()
+                      : "-"}
                   </span>
                 </div>
-                <p className="text-xs text-slate-500 mt-1 pl-6">
-                  {job.lastRun.split(" ")[1]}
-                </p>
               </div>
+
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
                   Reliability
@@ -121,18 +183,24 @@ const JobDetailsModal = ({ job, onClose }) => {
                 <div className="flex items-center gap-2">
                   <RefreshCw className="w-4 h-4 text-slate-400" />
                   <span className="text-sm font-semibold text-slate-900">
-                    {job.retries} / 5 Retries
+                    {jobDetails.attemptsMade} / {jobDetails.maxRetries} Retries
                   </span>
                 </div>
                 <div className="w-full bg-slate-200 rounded-full h-1.5 mt-2">
                   <div
                     className="bg-blue-600 h-1.5 rounded-full"
-                    style={{ width: "20%" }}
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        (jobDetails.attemptsMade / jobDetails.maxRetries) * 100
+                      )}%`,
+                    }}
                   ></div>
                 </div>
               </div>
             </div>
 
+            {/* EXECUTION HISTORY */}
             <div>
               <h4 className="text-base font-bold text-slate-900 mb-4">
                 Execution History
@@ -156,49 +224,71 @@ const JobDetailsModal = ({ job, onClose }) => {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-slate-200">
-                    {MOCK_HISTORY.map((run) => (
-                      <tr key={run.id}>
-                        <td className="px-5 py-3 text-sm font-mono text-slate-500">
-                          #{run.id}
-                        </td>
-                        <td className="px-5 py-3 text-sm">
-                          <span
-                            className={`inline-flex items-center text-xs font-bold ${
-                              run.status === "SUCCESS"
-                                ? "text-emerald-700"
-                                : "text-red-700"
-                            }`}
-                          >
-                            {run.status === "SUCCESS" ? (
-                              <CheckCircle className="w-3 h-3 mr-1" />
-                            ) : (
-                              <XCircle className="w-3 h-3 mr-1" />
-                            )}
-                            {run.status}
-                          </span>
-                          {run.error && (
-                            <div className="text-xs text-red-500 mt-1 font-medium bg-red-50 p-1 rounded">
-                              {run.error}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-5 py-3 text-sm text-slate-600">
-                          {run.started}
-                        </td>
-                        <td className="px-5 py-3 text-sm text-slate-600 font-mono">
-                          45s
+                    {loading ? (
+                      <tr>
+                        <td colSpan="4" className="px-5 py-6 text-center text-sm text-slate-500">
+                          Loading execution history...
                         </td>
                       </tr>
-                    ))}
+                    ) : history.length === 0 ? (
+                      <tr>
+                        <td colSpan="4" className="px-5 py-6 text-center text-sm text-slate-500">
+                          No executions yet
+                        </td>
+                      </tr>
+                    ) : (
+                      history.map((run) => (
+                        <tr key={run.id}>
+                          <td className="px-5 py-3 text-sm font-mono text-slate-500">
+                            #{run.id}
+                          </td>
+                          <td className="px-5 py-3 text-sm">
+                            <span
+                              className={`inline-flex items-center text-xs font-bold ${
+                                run.status === "SUCCESS"
+                                  ? "text-emerald-700"
+                                  : "text-red-700"
+                              }`}
+                            >
+                              {run.status === "SUCCESS" ? (
+                                <CheckCircle className="w-3 h-3 mr-1" />
+                              ) : (
+                                <XCircle className="w-3 h-3 mr-1" />
+                              )}
+                              {run.status}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3 text-sm text-slate-600">
+                            {new Date(run.startedAt).toLocaleString()}
+                          </td>
+                          <td className="px-5 py-3 text-sm text-slate-600 font-mono">
+                            {Math.max(
+                              0,
+                              (new Date(run.endedAt) -
+                                new Date(run.startedAt)) /
+                                1000
+                            )}
+                            s
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
             </div>
           </div>
+
+          {/* FOOTER */}
           <div className="bg-slate-50 px-4 py-4 sm:px-8 sm:flex sm:flex-row-reverse border-t border-slate-200 gap-3">
-            <Button className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700">
-              Trigger Job Now
+            <Button
+              onClick={handleTrigger}
+              disabled={triggering}
+              className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"
+            >
+              {triggering ? "Triggering..." : "Trigger Job Now"}
             </Button>
+
             <Button
               onClick={onClose}
               variant="secondary"
@@ -206,11 +296,14 @@ const JobDetailsModal = ({ job, onClose }) => {
             >
               Close
             </Button>
+
             <Button
+              onClick={handleStop}
+              disabled={stopping}
               variant="ghost"
               className="w-full sm:w-auto text-red-600 hover:bg-red-50 hover:text-red-700 mr-auto"
             >
-              Stop Job
+              {stopping ? "Stopping..." : "Stop Job"}
             </Button>
           </div>
         </div>

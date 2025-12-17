@@ -1,12 +1,78 @@
-
-import { Clock , Globe, Mail, XCircle} from 'lucide-react';
-import Button from '../../components/Button';
-import Input from '../../components/Input';
-import { useState } from 'react';
+import { Clock, Globe, Mail, XCircle } from "lucide-react";
+import Button from "../../components/Button";
+import Input from "../../components/Input";
+import { useState } from "react";
+import { createJob } from "./jobs.api";
 
 const CreateJobModal = ({ onClose }) => {
-  const [jobType, setJobType] = useState("WEBHOOK"); // WEBHOOK or EMAIL
-  const [scheduleType, setScheduleType] = useState("ONCE"); // ONCE, DAILY, WEEKLY, MONTHLY, CRON
+  const [jobName, setJobName] = useState("");
+
+  const [jobType, setJobType] = useState("WEBHOOK");
+  const [scheduleType, setScheduleType] = useState("ONCE");
+
+  // Webhook fields
+  const [targetUrl, setTargetUrl] = useState("");
+  const [method, setMethod] = useState("POST");
+
+  // Email fields
+  const [recipient, setRecipient] = useState("");
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+
+  // Schedule fields
+  const [time, setTime] = useState("00:00");
+  const [date, setDate] = useState("");
+  const [cron, setCron] = useState("");
+
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  // ---------- helpers ----------
+  const buildCron = () => {
+    const [hh, mm] = time.split(":");
+
+    switch (scheduleType) {
+      case "DAILY":
+        return `${mm} ${hh} * * *`;
+      case "WEEKLY":
+        return `${mm} ${hh} * * 1`;
+      case "MONTHLY":
+        return `${mm} ${hh} 1 * *`;
+      case "CRON":
+        return cron;
+      default:
+        return null;
+    }
+  };
+
+  const handleCreate = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const isCron = scheduleType !== "ONCE";
+
+      const payload =
+        jobType === "WEBHOOK"
+          ? { url: targetUrl, method }
+          : { to: recipient, subject, body };
+
+      await createJob({
+        name: jobName,
+        jobType,
+        scheduleType: isCron ? "CRON" : "ONCE",
+        runAt: !isCron && date ? `${date}T${time}:00Z` : undefined,
+        cron: isCron ? buildCron() : undefined,
+        payload,
+      });
+
+      onClose();
+    } catch (e) {
+      setError("Failed to create job");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div
@@ -20,6 +86,7 @@ const CreateJobModal = ({ onClose }) => {
           className="fixed inset-0 bg-slate-900 bg-opacity-40 backdrop-blur-sm transition-opacity"
           onClick={onClose}
         ></div>
+
         <span className="hidden sm:inline-block sm:align-middle sm:h-screen">
           &#8203;
         </span>
@@ -38,13 +105,16 @@ const CreateJobModal = ({ onClose }) => {
               </button>
             </div>
 
-            <form className="space-y-5">
+            <form className="space-y-5" onSubmit={(e) => e.preventDefault()}>
               <Input
                 label="Job Name"
                 id="jobName"
                 placeholder="e.g., Daily Data Sync"
+                value={jobName}
+                onChange={(e) => setJobName(e.target.value)}
               />
 
+              {/* Job Type */}
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-2">
                   Job Type
@@ -61,6 +131,7 @@ const CreateJobModal = ({ onClose }) => {
                     <Globe className="w-6 h-6" />
                     <span className="font-semibold text-sm">Webhook</span>
                   </div>
+
                   <div
                     className={`border rounded-lg p-4 cursor-pointer flex flex-col items-center justify-center gap-2 transition-all ${
                       jobType === "EMAIL"
@@ -75,44 +146,32 @@ const CreateJobModal = ({ onClose }) => {
                 </div>
               </div>
 
+              {/* Payload */}
               {jobType === "WEBHOOK" ? (
                 <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300 p-4 bg-slate-50 rounded-lg border border-slate-100">
                   <Input
                     label="Target URL"
                     id="targetUrl"
                     placeholder="https://api.example.com/webhooks/trigger"
+                    value={targetUrl}
+                    onChange={(e) => setTargetUrl(e.target.value)}
                   />
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-sm font-semibold text-slate-700 mb-1.5">
                         HTTP Method
                       </label>
-                      <select className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm shadow-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                      <select
+                        value={method}
+                        onChange={(e) => setMethod(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm shadow-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                      >
                         <option>POST</option>
                         <option>GET</option>
                         <option>PUT</option>
                         <option>DELETE</option>
                       </select>
                     </div>
-                    <div className="md:col-span-2">
-                      <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                        Timeout (seconds)
-                      </label>
-                      <input
-                        type="number"
-                        className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm shadow-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                        placeholder="30"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                      JSON Payload (Optional)
-                    </label>
-                    <textarea
-                      className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm shadow-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 h-24 font-mono text-xs"
-                      placeholder='{"key": "value"}'
-                    ></textarea>
                   </div>
                 </div>
               ) : (
@@ -121,24 +180,26 @@ const CreateJobModal = ({ onClose }) => {
                     label="Recipient Email"
                     id="recipient"
                     placeholder="user@example.com"
+                    value={recipient}
+                    onChange={(e) => setRecipient(e.target.value)}
                   />
                   <Input
                     label="Subject"
                     id="subject"
                     placeholder="Notification Subject"
+                    value={subject}
+                    onChange={(e) => setSubject(e.target.value)}
                   />
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                      Email Body
-                    </label>
-                    <textarea
-                      className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm shadow-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 h-24"
-                      placeholder="Enter email content..."
-                    ></textarea>
-                  </div>
+                  <textarea
+                    className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm shadow-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 h-24"
+                    placeholder="Enter email content..."
+                    value={body}
+                    onChange={(e) => setBody(e.target.value)}
+                  />
                 </div>
               )}
 
+              {/* Schedule */}
               <div className="pt-6 border-t border-slate-100">
                 <h4 className="text-sm font-bold text-slate-900 mb-4 flex items-center">
                   <Clock className="w-4 h-4 mr-2 text-blue-600" />
@@ -151,9 +212,9 @@ const CreateJobModal = ({ onClose }) => {
                       Frequency
                     </label>
                     <select
-                      className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm shadow-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                       value={scheduleType}
                       onChange={(e) => setScheduleType(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm shadow-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                     >
                       <option value="ONCE">One-time</option>
                       <option value="DAILY">Daily</option>
@@ -170,6 +231,8 @@ const CreateJobModal = ({ onClose }) => {
                       </label>
                       <input
                         type="time"
+                        value={time}
+                        onChange={(e) => setTime(e.target.value)}
                         className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm shadow-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                       />
                     </div>
@@ -177,82 +240,38 @@ const CreateJobModal = ({ onClose }) => {
                 </div>
 
                 {scheduleType === "ONCE" && (
-                  <div className="mb-4 animate-in fade-in slide-in-from-top-1">
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                      Date
-                    </label>
-                    <input
-                      type="date"
-                      className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm shadow-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                    />
-                  </div>
-                )}
-
-                {scheduleType === "WEEKLY" && (
-                  <div className="mb-4 animate-in fade-in slide-in-from-top-1">
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                      Repeat on
-                    </label>
-                    <div className="flex gap-2">
-                      {["S", "M", "T", "W", "T", "F", "S"].map((day, i) => (
-                        <button
-                          key={i}
-                          type="button"
-                          className={`w-10 h-10 rounded-lg text-sm font-semibold border transition-all ${
-                            i === 1
-                              ? "bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-200"
-                              : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
-                          }`}
-                        >
-                          {day}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {scheduleType === "MONTHLY" && (
-                  <div className="mb-4 animate-in fade-in slide-in-from-top-1">
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                      Day of Month
-                    </label>
-                    <select className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm shadow-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-                      {Array.from({ length: 31 }, (_, i) => (
-                        <option key={i + 1} value={i + 1}>
-                          {i + 1}
-                          {[1, 21, 31].includes(i + 1)
-                            ? "st"
-                            : [2, 22].includes(i + 1)
-                            ? "nd"
-                            : [3, 23].includes(i + 1)
-                            ? "rd"
-                            : "th"}
-                        </option>
-                      ))}
-                      <option value="LAST">Last Day</option>
-                    </select>
-                  </div>
+                  <input
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm shadow-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  />
                 )}
 
                 {scheduleType === "CRON" && (
-                  <div className="animate-in fade-in slide-in-from-top-1">
-                    <Input
-                      label="Cron Expression"
-                      id="cron"
-                      placeholder="0 0 * * *"
-                    />
-                    <p className="text-xs text-slate-500 -mt-3 flex items-center">
-                      <Clock className="w-3 h-3 mr-1" />
-                      Format: Minute Hour Day Month Weekday
-                    </p>
-                  </div>
+                  <Input
+                    label="Cron Expression"
+                    id="cron"
+                    placeholder="0 0 * * *"
+                    value={cron}
+                    onChange={(e) => setCron(e.target.value)}
+                  />
                 )}
               </div>
+
+              {error && (
+                <p className="text-sm font-medium text-red-600">{error}</p>
+              )}
             </form>
           </div>
+
           <div className="bg-slate-50 px-4 py-4 sm:px-8 sm:flex sm:flex-row-reverse border-t border-slate-200 gap-3">
-            <Button className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700">
-              Create Job
+            <Button
+              className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"
+              onClick={handleCreate}
+              disabled={loading}
+            >
+              {loading ? "Creating..." : "Create Job"}
             </Button>
             <Button
               onClick={onClose}

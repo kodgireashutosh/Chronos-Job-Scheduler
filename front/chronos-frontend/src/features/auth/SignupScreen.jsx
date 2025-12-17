@@ -56,12 +56,6 @@ const SignupScreen = ({ onNavigate }) => {
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <Card className="py-8 px-4 sm:px-10 shadow-lg">
           <form className="space-y-6" onSubmit={handleSubmit}>
-            {/* UI-only fields (kept intentionally) */}
-            <div className="grid grid-cols-2 gap-4">
-              <Input label="First Name" placeholder="John" />
-              <Input label="Last Name" placeholder="Doe" />
-            </div>
-
             <Input
               label="Email address"
               type="email"

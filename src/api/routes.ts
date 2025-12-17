@@ -22,6 +22,7 @@ import {
   getSettings,
   saveSettings
 } from "./settings.controller";
+import { getDashboardMetrics } from "./dashboard.controller";
 
 const router = Router();
 
@@ -47,5 +48,6 @@ router.post("/jobs/:id/cancel", auth, cancelJob);
 /* ---------------- SETTINGS ---------------- */
 router.get("/settings/smtp", auth, getSettings);
 router.post("/settings/smtp", auth, saveSettings);
-
+/* ---------------- DASHBOARD ---------------- */
+router.get("/dashboard/metrics", auth, getDashboardMetrics);
 export default router;

@@ -70,7 +70,7 @@ export default function Sidebar({
               </div>
               <div className="ml-3 text-left">
                 <p className="text-sm font-medium text-white group-hover:text-white">
-                  Admin User
+                  Chronos User
                 </p>
                 <p className="text-xs font-medium text-slate-400 group-hover:text-slate-300">
                   View Profile
