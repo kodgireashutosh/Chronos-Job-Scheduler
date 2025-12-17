@@ -3,7 +3,6 @@ import { prisma } from "../db/prisma";
 import { jobQueue } from "../queue/job.queue";
 import { ExecutionStatus, JobStatus } from "@prisma/client";
 
-/* List jobs */
 export const getJobs = async (req: any, res: Response) => {
   const jobs = await prisma.job.findMany({
     where: { userId: req.user.id },
@@ -13,7 +12,6 @@ export const getJobs = async (req: any, res: Response) => {
   res.json(jobs);
 };
 
-/* Job details */
 export const getJobById = async (req: any, res: Response) => {
   const job = await prisma.job.findFirst({
     where: { id: req.params.id, userId: req.user.id }
@@ -23,7 +21,6 @@ export const getJobById = async (req: any, res: Response) => {
   res.json(job);
 };
 
-/* Execution history */
 export const getJobExecutions = async (req: any, res: Response) => {
   const executions = await prisma.jobExecution.findMany({
     where: { jobId: req.params.id },
@@ -62,7 +59,6 @@ export const triggerJob = async (req: Request, res: Response) => {
 };
 
 
-/* Cancel job */
 export const cancelJob = async (req: Request, res: Response) => {
   await prisma.job.update({
     where: { id: req.params.id },

@@ -11,7 +11,6 @@ export async function getDashboardMetrics(
   res: Response
 ) {
   try {
-    // 🔐 Same pattern as createJob controller
     const user = (req as any).user;
     if (!user) {
       return res.status(401).json({ error: "Unauthorized" });
@@ -34,12 +33,10 @@ export async function getDashboardMetrics(
       pending,
       cancelled,
     ] = await Promise.all([
-      // 🧮 Total jobs for user
       prisma.job.count({
         where: { userId },
       }),
 
-      // ✅ Successful executions
       prisma.jobExecution.count({
         where: {
           status: ExecutionStatus.SUCCESS,
@@ -48,7 +45,6 @@ export async function getDashboardMetrics(
         },
       }),
 
-      // ❌ Failed executions
       prisma.jobExecution.count({
         where: {
           status: ExecutionStatus.FAILURE,
@@ -57,7 +53,6 @@ export async function getDashboardMetrics(
         },
       }),
 
-      // ⏳ Pending / Running jobs
       prisma.job.count({
         where: {
           userId,
@@ -67,7 +62,6 @@ export async function getDashboardMetrics(
         },
       }),
 
-      // 🚫 Cancelled jobs
       prisma.job.count({
         where: {
           userId,
