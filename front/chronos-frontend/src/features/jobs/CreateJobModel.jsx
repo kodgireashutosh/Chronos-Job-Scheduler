@@ -4,7 +4,7 @@ import Input from "../../components/Input";
 import { useState } from "react";
 import { createJob } from "./jobs.api";
 
-const CreateJobModal = ({ onClose }) => {
+const CreateJobModal = ({ onClose, onCreated }) => {
   const [jobName, setJobName] = useState("");
 
   const [jobType, setJobType] = useState("WEBHOOK");
@@ -66,6 +66,8 @@ const CreateJobModal = ({ onClose }) => {
         payload,
       });
 
+      // ✅ THIS IS THE FIX
+      onCreated?.(); // refresh job list in parent
       onClose();
     } catch (e) {
       setError("Failed to create job");
