@@ -63,25 +63,18 @@ docker compose up --build
 Ashutosh Kodgire
 
 ---
-
-## ✅ YOU NOW HAVE
 ✔ Industry-level scheduler  
 ✔ Event-driven worker  
 ✔ DLQ  
 ✔ Execution logs  
 ✔ Interview-ready architecture  
 ✔ Extendable UI later  
-
 ---
 
-## 🔥 NEXT (OPTIONAL BUT STRONG)
+## NEXT (OPTIONAL BUT STRONG)
 
 If you want:
 - BullMQ UI dashboard
 - Replay failed jobs
 - Rate limiting
 - Cron recurring jobs
-
-Say **“add cron + replay”**
-
-You’re no longer “just submitting” — this is **strong engineering work** 💪
