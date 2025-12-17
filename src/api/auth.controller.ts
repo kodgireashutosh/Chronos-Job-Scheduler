@@ -74,7 +74,7 @@ export async function login(req: Request, res: Response) {
 
     const token = jwt.sign(
         {
-            userId: user.id,   // ✅ matches auth.middleware
+            userId: user.id, 
             role: user.role,
         },
         process.env.JWT_SECRET!,

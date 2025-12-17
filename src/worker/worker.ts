@@ -5,7 +5,7 @@ import axios from "axios";
 import nodemailer from "nodemailer";
 import { deadLetterQueue } from "../queue/job.queue";
 
-console.log("🚀 Worker started (BullMQ)");
+console.log("Worker started (BullMQ)");
 
 interface JobPayload {
   jobId: string;
@@ -14,11 +14,10 @@ interface JobPayload {
 new Worker(
   "chronos-jobs",
   async (bullJob) => {
-    // ✅ CORRECT: extract jobId as STRING
     const { jobId } = bullJob.data as JobPayload;
 
     if (!jobId) {
-      console.warn("⚠️ Missing jobId in payload");
+      console.warn(" Missing jobId in payload");
       return;
     }
 
@@ -28,28 +27,25 @@ new Worker(
     });
 
     if (!dbJob) {
-      console.warn("⚠️ Job not found in DB:", jobId);
+      console.warn("Job not found in DB:", jobId);
       return;
     }
 
     const startedAt = new Date();
 
     try {
-      // 2️⃣ Mark RUNNING
       await prisma.job.update({
         where: { id: jobId },
         data: { status: "RUNNING" },
       });
 
-      // ------------------
-      // 🌐 WEBHOOK
-      // ------------------
+    
       if (dbJob.jobType === "WEBHOOK") {
         if (!dbJob.webhookUrl) {
           throw new Error("Webhook URL missing");
         }
 
-        console.log("🌐 Sending webhook:", dbJob.webhookUrl);
+        console.log("Sending webhook:", dbJob.webhookUrl);
 
         await axios({
           url: dbJob.webhookUrl,
@@ -57,9 +53,7 @@ new Worker(
         });
       }
 
-      // ------------------
-      // ✉️ EMAIL
-      // ------------------
+    
       if (dbJob.jobType === "EMAIL") {
         const settings = await prisma.setting.findFirst({
           where: { userId: dbJob.userId },
@@ -87,13 +81,11 @@ new Worker(
         });
       }
 
-      // 3️⃣ Mark COMPLETED
       await prisma.job.update({
         where: { id: jobId },
         data: { status: "COMPLETED" },
       });
 
-      // 4️⃣ Execution success log
       await prisma.jobExecution.create({
         data: {
           jobId,
@@ -104,9 +96,8 @@ new Worker(
         },
       });
 
-      console.log(`✅ Job completed: ${dbJob.name}`);
+      console.log(`Job completed: ${dbJob.name}`);
     } catch (err: any) {
-      // 5️⃣ Mark FAILED + retry count
       const updatedJob = await prisma.job.update({
         where: { id: jobId },
         data: {
@@ -115,7 +106,6 @@ new Worker(
         },
       });
 
-      // 6️⃣ Execution failure log
       await prisma.jobExecution.create({
         data: {
           jobId,
@@ -127,7 +117,6 @@ new Worker(
         },
       });
 
-      // ⛔ Auto-cancel CRON jobs
       if (
         updatedJob.scheduleType === "CRON" &&
         updatedJob.retries >= updatedJob.maxRetries
@@ -138,13 +127,13 @@ new Worker(
         });
 
         console.log(
-          `⛔ CRON job cancelled after ${updatedJob.retries} failures: ${updatedJob.name}`
+          `CRON job cancelled after ${updatedJob.retries} failures: ${updatedJob.name}`
         );
 
         return;
       }
 
-      console.error(`❌ Job failed: ${dbJob.name}`, err.message);
+      console.error(`Job failed: ${dbJob.name}`, err.message);
       throw err; // REQUIRED for BullMQ retry + DLQ
     }
   },
@@ -154,15 +143,12 @@ new Worker(
   }
 );
 
-// ------------------
-// 🔥 DLQ LISTENER
-// ------------------
 const events = new QueueEvents("chronos-jobs", {
   connection: redis,
 });
 
 events.on("failed", async ({ jobId, failedReason }) => {
-  console.error("💀 Job moved to DLQ:", jobId, failedReason);
+  console.error("Job moved to DLQ:", jobId, failedReason);
 
   await deadLetterQueue.add("dead", {
     jobId,

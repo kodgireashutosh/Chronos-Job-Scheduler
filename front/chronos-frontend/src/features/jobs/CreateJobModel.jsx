@@ -3,6 +3,21 @@ import Button from "../../components/Button";
 import Input from "../../components/Input";
 import { useState } from "react";
 import { createJob } from "./jobs.api";
+// IST is UTC + 05:30
+const IST_OFFSET_MINUTES = 5 * 60 + 30;
+
+// Convert IST date + time → UTC ISO string
+const istToUtcISOString = (date, time) => {
+  const [hh, mm] = time.split(":").map(Number);
+
+  // Create date in IST
+  const istDate = new Date(`${date}T${time}:00`);
+
+  // Convert IST → UTC
+  istDate.setMinutes(istDate.getMinutes() - IST_OFFSET_MINUTES);
+
+  return istDate.toISOString();
+};
 
 const CreateJobModal = ({ onClose, onCreated }) => {
   const [jobName, setJobName] = useState("");
@@ -27,17 +42,23 @@ const CreateJobModal = ({ onClose, onCreated }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // ---------- helpers ----------
   const buildCron = () => {
-    const [hh, mm] = time.split(":");
+    const [hh, mm] = time.split(":").map(Number);
+
+    // Convert IST time → UTC time
+    const totalMinutes = hh * 60 + mm - IST_OFFSET_MINUTES;
+    const utcMinutes = (totalMinutes + 1440) % 1440;
+
+    const utcHour = Math.floor(utcMinutes / 60);
+    const utcMinute = utcMinutes % 60;
 
     switch (scheduleType) {
       case "DAILY":
-        return `${mm} ${hh} * * *`;
+        return `${utcMinute} ${utcHour} * * *`;
       case "WEEKLY":
-        return `${mm} ${hh} * * 1`;
+        return `${utcMinute} ${utcHour} * * 1`;
       case "MONTHLY":
-        return `${mm} ${hh} 1 * *`;
+        return `${utcMinute} ${utcHour} 1 * *`;
       case "CRON":
         return cron;
       default:
@@ -61,7 +82,7 @@ const CreateJobModal = ({ onClose, onCreated }) => {
         name: jobName,
         jobType,
         scheduleType: isCron ? "CRON" : "ONCE",
-        runAt: !isCron && date ? `${date}T${time}:00Z` : undefined,
+       runAt: !isCron && date ? istToUtcISOString(date, time) : undefined,
         cron: isCron ? buildCron() : undefined,
         payload,
       });
@@ -229,7 +250,7 @@ const CreateJobModal = ({ onClose, onCreated }) => {
                   {scheduleType !== "CRON" && (
                     <div>
                       <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                        Time (UTC)
+                        Time
                       </label>
                       <input
                         type="time"

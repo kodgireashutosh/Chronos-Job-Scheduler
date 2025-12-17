@@ -59,17 +59,13 @@ export async function createJob(req: Request, res: Response) {
       });
     }
 
-    // -----------------------------
-    // 2️⃣ nextRunAt (DB visibility only)
-    // -----------------------------
+    
     const nextRunAt =
       scheduleType === "ONCE"
         ? new Date(runAt)
         : new Date(); // CRON marker only
 
-    // -----------------------------
-    // 3️⃣ CREATE JOB IN DB
-    // -----------------------------
+   
     const job = await prisma.job.create({
       data: {
         name,
@@ -95,9 +91,6 @@ export async function createJob(req: Request, res: Response) {
       },
     });
 
-    // -----------------------------
-    // 4️⃣ ADD TO QUEUE (FINAL FIX)
-    // -----------------------------
     if (scheduleType === "CRON") {
       await jobQueue.add(
         "execute",

@@ -5,6 +5,19 @@ import CreateJobModal from "./CreateJobModel";
 import { useEffect, useState, useCallback } from "react";
 import { Mail, Activity, ChevronRight, Search } from "lucide-react";
 import { fetchJobs } from "./jobs.api";
+const formatUtcToIst = (utcString) => {
+  if (!utcString) return "-";
+
+  return new Date(utcString).toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+};
 
 const JobsListScreen = ({ onSelectJob }) => {
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -35,9 +48,7 @@ const JobsListScreen = ({ onSelectJob }) => {
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="sm:flex sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">
-            Job Management
-          </h1>
+          <h1 className="text-2xl font-bold text-slate-900">Job Management</h1>
           <p className="text-sm text-slate-500 mt-1">
             Monitor and configure scheduled tasks
           </p>
@@ -90,7 +101,10 @@ const JobsListScreen = ({ onSelectJob }) => {
             <tbody className="bg-white divide-y divide-slate-200">
               {loading && (
                 <tr>
-                  <td colSpan={5} className="px-6 py-6 text-center text-slate-500">
+                  <td
+                    colSpan={5}
+                    className="px-6 py-6 text-center text-slate-500"
+                  >
                     Loading jobs...
                   </td>
                 </tr>
@@ -98,7 +112,10 @@ const JobsListScreen = ({ onSelectJob }) => {
 
               {!loading && error && (
                 <tr>
-                  <td colSpan={5} className="px-6 py-6 text-center text-red-600">
+                  <td
+                    colSpan={5}
+                    className="px-6 py-6 text-center text-red-600"
+                  >
                     {error}
                   </td>
                 </tr>
@@ -153,9 +170,14 @@ const JobsListScreen = ({ onSelectJob }) => {
                     </td>
 
                     <td className="px-6 py-4 text-sm text-slate-600 font-medium">
-                      {job.nextRunAt
-                        ? new Date(job.nextRunAt).toLocaleString()
-                        : "-"}
+                      {job.scheduleType === "ONCE" || !job.nextRunAt ? (
+                        "-"
+                      ) : (
+                        <>
+                          {formatUtcToIst(job.nextRunAt)}
+                          <div className="text-xs text-slate-400">(IST)</div>
+                        </>
+                      )}
                     </td>
 
                     <td className="px-6 py-4 text-right">
